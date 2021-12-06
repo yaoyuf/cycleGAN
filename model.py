@@ -2,15 +2,72 @@ import os
 import torch
 import itertools
 
+'''
+Model Initialization
+'''
+def init_model(model, init_type='normal', init_gain=0.02, use_cuda=False):
+	if use_cuda:
+		model.to('cuda')
+	
+	def weights_init(module):
+		name = m.__class__.__name__
+		if name.find('Conv') != -1:
+			nn.init.normal_(module.weight.data, 0.0, init_gain)
+			if hasattr(module, 'bias') and module.bias is not None:
+				nn.init.constant_(m.bias.data, 0.0)
+		elif name.find('BatchNorm') != -1:
+			nn.init.normal_(module.weight.data, 1.0, init_gain)
+			nn.init.constant_(module.bias.data, 0.0)
+	model.apply(weights_init)
+
+	return model
+
 # define netowrks
 def Generator(input_nc, output_nc, n_filter, norm='batch', dropout=False, init_type='normal', init_gain=0.02, use_cuda=False):
 
 	return
 
+
+'''
+Discriminator Network
+'''
+class PatchGANDiscriminator(nn.Module):
+	# Using Patch GAN as Discriminator 
+	def __int__(self, input_nc, n_filter, n_layers=3, norm_layer=nn.BatchNorm2d):
+		super(PatchGANDiscriminator, self).__init__()
+		
+		bias = norm_layer != nn.BatchNorm2d
+		kernel = 4
+		padding = 1
+		layers = [nn.Conv2d(input_nc, n_filter, kernel_size=kernel, stride=2, padding=padding), nn.LeakyReLU(0.2,True)]
+		k = 1
+		for i in range(n_layers):
+			layers += [
+				nn.Conv2d(n_filter*k, n_filter*k*2, kernel_size=kernel, stride=2, padding=padding, bias=bias),
+				norm_layer(n_filter*k*2),
+				nn.LeakyReLU(0.2,True)
+			]
+			k *= 2
+		layers += [
+			nn.Conv2d(n_filter*k, n_filter*k*2, kernel_size=kernel, stride=1, padding=padding, bias=bias),
+			norm_layer(n_filter*k*2),
+			nn.LeakyReLU(0.2,True),
+			nn.Conv2d(n_filter*k*2, 1 , kernel_size=kernel, stride=1, padding=padding, bias=bias)
+		]
+		
+		self.model = nn.Sequential(*layer)
+	
+	def forward(self, input):
+		return self.model(input)
+
 def Discriminator(input_nc, n_filter, n_layers=3, norm='batch', init_type='normal', init_gain=0.02, use_cuda=False):
+	model = PatchGANDiscriminator(input_nc, n_filter, n_layers)
+	return init_model(model, init_type, init_gain, use_cuda)
 
-	return
 
+'''
+Adversarial Loss
+'''
 class GANLoss(nn.Module):
 	# GANLoss calculator
 	def __init__(self):
@@ -26,11 +83,11 @@ class GANLoss(nn.Module):
 			target = self.fake_label.expand_as(prediction)
 		loss = self.loss(prediction, target)
 
-class CycleGAN():
-	# CycleGan model
-	def GANLoss():
 
-		return
+'''
+Cycle GAN model
+'''
+class CycleGAN():
 
 	def __init_(self, args):
 		super(CycleGAN, self).__init__()
