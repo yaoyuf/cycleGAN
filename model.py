@@ -98,7 +98,7 @@ class CycleGAN():
 		self.device = torch.device('cuda') if args.is_gpu else torch.device('cpu')
 		self.save_dir = os.path.join(args.checkpoints_dir, args.name)
 
-		self.loss_names = ['G_A', 'D_A', 'cycle_A', 'G_B', 'D_B', 'cycle_B']
+		self.loss_names = ['genLoss_A', 'disLoss_A', 'cycleLoss_A', 'genLoss_B', 'disLoss_B', 'cycleLoss_B']
 		self.visual_names = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
 		
 		# define generator network
@@ -106,7 +106,7 @@ class CycleGAN():
 		self.gen_B = Generator(args.output_nc, args.input_nc, args.n_filter, args.norm, args.dropout, args.init_type, args.init_gain, args.is_gpu)
 		
 		if self.is_train:
-			self.model_names = ['G_A', 'D_A', 'G_B', 'D_B']
+			self.model_names = ['gen_A', 'dis_A', 'gen_B', 'dis_B']
 			# define discriminator network
 			self.dis_A = Discriminator(args.output_nc, args.n_filter, args.n_layers, args.norm, args.init_type, args.init_gain, args.is_gpu)
 			self.dis_B = Discriminator(args.input_nc, args.n_filter, args.n_layers, args.norm, args.init_type, args.init_gain, args.is_gpu)
@@ -124,13 +124,24 @@ class CycleGAN():
 			else:
 				self.lr = [lr_scheduler.StepLR(self.optimizer_G, step_size=args.lr_decay_iters, gamma=0.1),lr_scheduler.StepLR(self.optimizer_D, step_size=args.lr_decay_iters, gamma=0.1)]		
 		else:
-			self.model_names = ['G_A', 'G_B']
+			self.model_names = ['gen_A', 'gen_B']
 
 	def lr_update(self):
 		for lr in self.lr:
 			lr.step()
 		lr = self.optimizer_G.param_groups[0]['lr']
 		print('learning rate %.7f' % (lr))
+
+	def model_save(self,epoch):
+		for net in self.model_names:
+			file = '%s_%s.pth' % (epoch, net)
+			path = os.path.join(self.save_dir, file)
+			model = getattr(self, net)
+			if self.args.is_gpu and torch.cuda.is_available():
+				torch.save(model.module.cpu().state_dict(), path)
+				model.cuda()
+			else:
+				torch.save(model.cpu().state_dict(), path)
 
 	def set_required_grad(self, network, requires_grad):
 		for net in network:
@@ -149,11 +160,11 @@ class CycleGAN():
 	def backward_G(self):
 		self.optimizer_G.zero_grad()
 		
-		self.ganLoss_A = self.ganLoss(self.dis_A(self.fake_B), True)
-		self.ganLoss_B = self.ganLoss(self.dis_B(self.fake_A), True)
+		self.genLoss_A = self.ganLoss(self.dis_A(self.fake_B), True)
+		self.genLoss_B = self.ganLoss(self.dis_B(self.fake_A), True)
 		self.cycleLoss_A = self.cycleLoss(self.rec_A, self.real_A) * self.args.lambda_A
 		self.cycleLoss_B = self.cycleLoss(self.rec_B, self.real_B) * self.args.lambda_B
-		self.loss_G = self.ganLoss_A + self.ganLoss_B + self.cycleLoss_A + self.cycleLoss_B
+		self.loss_G = self.genLoss_A + self.genLoss_B + self.cycleLoss_A + self.cycleLoss_B
 		self.loss_G.backward()
 
 		self.optimizer_G.step()
@@ -166,12 +177,14 @@ class CycleGAN():
 		loss_fake_A = self.ganLoss(self.dis_A(fake_B.detach()), False)
 		loss_A = (loss_real_A + loss_fake_A) * 0.5
 		loss_A.backward()
+		self.disLoss_A = loss_A
 
 		fake_A = self.fake_A
 		loss_real_B = self.ganLoss(self.dis_B(self.real_B), True)
 		loss_fake_B = self.ganLoss(self.dis_B(fake_A.detach()), False)
 		loss_B = (loss_real_B + loss_fake_B) * 0.5
 		loss_B.backward()
+		self.disLoss_B = loss_B
 		
 		self.optimizer_D.step()
 
