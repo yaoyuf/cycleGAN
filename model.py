@@ -1,6 +1,8 @@
 import os
 import torch
+import torch.nn as nn
 import itertools
+from torch.optim import lr_scheduler
 
 '''
 Model Initialization
@@ -114,8 +116,21 @@ class CycleGAN():
 			# define optimizer
 			self.optimizer_G = torch.optim.Adam(itertools.chain(self.gen_A.parameters(), self.gen_B.parameters()), lr=args.lr, betas=(args.beta, 0.999))
 			self.optimizer_D = torch.optim.Adam(itertools.chain(self.dis_A.parameters(), self.dis_B.parameters()), lr=args.lr, betas=(args.beta, 0.999))
+			if args.lr_policy == 'linear':
+				def lambda_rule(epoch):
+					lr_l = 1.0 - max(0, epoch + args.epoch_count - args.n_epochs) / float(args.n_epochs_decay + 1)
+					return lr_l		
+				self.lr = [lr_scheduler.LambdaLR(self.optimizer_G, lr_lambda=lambda_rule), lr_scheduler.LambdaLR(self.optimizer_D, lr_lambda=lambda_rule)]
+			else:
+				self.lr = [lr_scheduler.StepLR(self.optimizer_G, step_size=args.lr_decay_iters, gamma=0.1),lr_scheduler.StepLR(self.optimizer_D, step_size=args.lr_decay_iters, gamma=0.1)]		
 		else:
 			self.model_names = ['G_A', 'G_B']
+
+	def lr_update(self):
+		for lr in self.lr:
+			lr.step()
+		lr = self.optimizer_G.param_groups[0]['lr']
+		print('learning rate %.7f' % (lr))
 
 	def set_required_grad(self, network, requires_grad):
 		for net in network:
