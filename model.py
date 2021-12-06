@@ -1,5 +1,4 @@
 import os
-from typing import Generator
 import torch
 import itertools
 
@@ -60,7 +59,12 @@ class CycleGAN():
 			self.optimizer_D = torch.optim.Adam(itertools.chain(self.dis_A.parameters(), self.dis_B.parameters()), lr=args.lr, betas=(args.beta, 0.999))
 		else:
 			self.model_names = ['G_A', 'G_B']
-		
+
+	def set_required_grad(self, network, requires_grad):
+		for net in network:
+			for param in net.parameters():
+				param.requires_grad = requires_grad
+
 	def forward(self, input_A, input_B):
 		# compute fake and rec pictures using generator
 		self.real_A = input_A
@@ -70,13 +74,41 @@ class CycleGAN():
 		self.rec_A = self.gen_B(self.fake_B)
 		self.rec_B = self.gen_A(self.fake_A)
 	
-	def backward_G():
-
-	def backward_D():
+	def backward_G(self):
+		self.optimizer_G.zero_grad()
 		
+		self.ganLoss_A = self.ganLoss(self.dis_A(self.fake_B), True)
+		self.ganLoss_B = self.ganLoss(self.dis_B(self.fake_A), True)
+		self.cycleLoss_A = self.cycleLoss(self.rec_A, self.real_A) * self.args.lambda_A
+		self.cycleLoss_B = self.cycleLoss(self.rec_B, self.real_B) * self.args.lambda_B
+		self.loss_G = self.ganLoss_A + self.ganLoss_B + self.cycleLoss_A + self.cycleLoss_B
+		self.loss_G.backward()
+
+		self.optimizer_G.step()
+
+	def backward_D(self):
+		self.optimizer_D.zero_grad()
+
+		fake_B = self.fake_B
+		loss_real_A = self.ganLoss(self.dis_A(self.real_B), True)
+		loss_fake_A = self.ganLoss(self.dis_A(fake_B.detach()), False)
+		loss_A = (loss_real_A + loss_fake_A) * 0.5
+		loss_A.backward()
+
+		fake_A = self.fake_A
+		loss_real_B = self.ganLoss(self.dis_B(self.real_B), True)
+		loss_fake_B = self.ganLoss(self.dis_B(fake_A.detach()), False)
+		loss_B = (loss_real_B + loss_fake_B) * 0.5
+		loss_B.backward()
+		
+		self.optimizer_D.step()
+
 
 	def Optimize(self, input_A, input_B):
 
 		self.forward(input_A, input_B)
+
+		self.set_required_grad([self.dis_A, self.dis_B], False)
 		self.backward_G()
+		self.set_required_grad([self.dis_A, self.dis_B], True)
 		self.backward_D()
