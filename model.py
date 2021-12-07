@@ -24,10 +24,120 @@ def init_model(model, init_type='normal', init_gain=0.02, use_cuda=False):
 
 	return model
 
+	def weights_init(module):
+		name = m.__class__.__name__
+		if name.find('Conv') != -1:
+			nn.init.normal_(module.weight.data, 0.0, init_gain)
+			if hasattr(module, 'bias') and module.bias is not None:
+				nn.init.constant_(m.bias.data, 0.0)
+		elif name.find('BatchNorm') != -1:
+			nn.init.normal_(module.weight.data, 1.0, init_gain)
+			nn.init.constant_(module.bias.data, 0.0)
+	model.apply(weights_init)
+
+	return model
+
+# define netowrks
+def init_weights(net, init_type='normal', init_gain=0.02):
+    def init_func(m):  # define the initialization function
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            init.normal_(m.weight.data, 0.0, init_gain)
+            if hasattr(m, 'bias') and m.bias is not None:
+                init.constant_(m.bias.data, 0.0)
+        elif classname.find('BatchNorm2d') != -1:
+            init.normal_(m.weight.data, 1.0, init_gain)
+            init.constant_(m.bias.data, 0.0)
+            
+print('initialize network with %s' % init_type)
+net.apply(init_func)          
+
+def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
+    if len(gpu_ids) > 0:
+        assert(torch.cuda.is_available())
+        net.to(gpu_ids[0])
+        net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
+    init_weights(net, init_type, init_gain=init_gain)
+    return net
+
+class ResnetBlock(nn.Module):
+    """Define a Resnet block, we use padding type: reflect"""
+
+    def __init__(self, dim, norm_layer, use_dropout, use_bias):
+        super(ResnetBlock, self).__init__()
+        self.conv_block = self.build_conv_block(dim, norm_layer, use_dropout, use_bias)
+        
+
+    def build_conv_block(self, dim, norm_layer, use_dropout, use_bias):
+        conv_block = []
+        conv_block += [nn.ReflectionPad2d(1)]
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=0, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
+        
+        if use_dropout:
+            conv_block += [nn.Dropout(0.5)]
+            
+        conv_block += [nn.ReflectionPad2d(1)]
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=0, bias=use_bias), norm_layer(dim)]
+
+        return nn.Sequential(*conv_block)
+    
+    
+    def forward(self, x):
+        """Forward function (with skip connections)"""
+        out = x + self.conv_block(x)  # add skip connections
+        return out
+    
+class ResnetGenerator(nn.Module):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+        super(ResnetGenerator, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+            
+        model = [nn.ReflectionPad2d(3),
+                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
+                 norm_layer(ngf),
+                 nn.ReLU(True)]
+
+        n_downsampling = 2
+        for i in range(n_downsampling):  # add downsampling layers
+            mult = 2 ** i
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                      norm_layer(ngf * mult * 2),
+                      nn.ReLU(True)]
+
+        mult = 2 ** n_downsampling
+        for i in range(n_blocks):       # add ResNet blocks
+
+            model += [ResnetBlock(ngf * mult, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+        for i in range(n_downsampling):  # add upsampling layers
+            mult = 2 ** (n_downsampling - i)
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                         kernel_size=3, stride=2,
+                                         padding=1, output_padding=1,
+                                         bias=use_bias),
+                      norm_layer(int(ngf * mult / 2)),
+                      nn.ReLU(True)]
+        model += [nn.ReflectionPad2d(3)]
+        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Tanh()]
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        """Standard forward"""
+        return self.model(input)
+
 # define netowrks
 def Generator(input_nc, output_nc, n_filter, norm='batch', dropout=False, init_type='normal', init_gain=0.02, use_cuda=False):
-
-	return
+	net = None
+    	if norm == 'batch':
+        	norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True) 
+       		 net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
+   	init.normal_(m.weight.data, 0.0, init_gain=0.02)
+	return init_net(net, init_type, init_gain, gpu_ids)
 
 
 '''
